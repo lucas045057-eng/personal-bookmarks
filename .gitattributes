@@ -1,0 +1,5 @@
+# 统一 LF：lint 会拒绝 CRLF，Windows 上克隆也不会把脚本变成 CRLF
+* text=auto eol=lf
+*.sh text eol=lf
+*.mjs text eol=lf
+*.yml text eol=lf

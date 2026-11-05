@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 纯静态页面：不加载任何外部资源。CSP 把这一点钉死（内联脚本/样式 + 只允许请求本站）。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'">
+  <title>你好，agent-template</title>
+  <style>
+    body { font: 16px/1.6 system-ui, sans-serif; max-width: 40rem; margin: 4rem auto; padding: 0 1rem; color: #1f2328; }
+    code { background: #f2f4f6; padding: 0.1em 0.4em; border-radius: 4px; }
+    .muted { color: #59636e; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>你好，agent-template 👋</h1>
+  <p>这是多 Agent 长期开发用的仓库模板自带的 Hello 页面。部署成功后，下面会显示这个页面对应的提交。</p>
+  <p>当前版本：<a id="commit-link" href="#"><code id="commit">加载中…</code></a></p>
+  <p class="muted">完整提交：<span id="commit-full">—</span><br>构建时间：<span id="built-at">—</span></p>
+  <p class="muted" id="status">正在读取 version.json …</p>
+
+  <script>
+    // 页面只做一件事：读同目录的 version.json，把当前部署的提交显示出来。
+    // 注意用相对路径 "./version.json"：Pages 项目站点在 /<仓库名>/ 下，写成 "/version.json" 会指到别人的根。
+    async function load() {
+      const status = document.getElementById("status");
+      try {
+        const response = await fetch("./version.json", { cache: "no-store" });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const version = await response.json();
+        if (typeof version.commit !== "string" || version.commit.length !== 40) throw new Error("commit 不是完整的 40 位 SHA");
+        document.getElementById("commit").textContent = version.commit.slice(0, 7);
+        document.getElementById("commit-full").textContent = version.commit;
+        document.getElementById("built-at").textContent = version.built_at || "—";
+        document.getElementById("commit-link").href = "https://github.com/" + version.repo + "/commit/" + version.commit;
+        status.textContent = version.dirty ? "已加载（本地构建，含未提交改动）" : "已加载";
+      } catch (error) {
+        status.textContent = "读取 version.json 失败：" + error.message;
+      }
+    }
+    // 把 Promise 挂出来，端到端测试（scripts/e2e.mjs）靠它知道页面脚本跑完了。
+    window.__ready = load();
+  </script>
+</body>
+</html>

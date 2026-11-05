@@ -1,0 +1,26 @@
+{
+  "features": [
+    {
+      "id": "F1",
+      "behavior": "打开站点首页能看到 Hello 页面，页面上显示当前部署对应的 commit 短 SHA，并链接到该提交",
+      "verification": "node scripts/build.mjs && node scripts/e2e.mjs index",
+      "state": "passing",
+      "issue": null,
+      "verified": {
+        "at": "2026-11-04T13:35:22.271Z",
+        "digest": "ffe46a8b5bfd0f71896ea5b8c9a6b6034c9449fca74c062e57764aa5113321dc"
+      }
+    },
+    {
+      "id": "F2",
+      "behavior": "站点根目录的 /version.json 返回合法 JSON，commit 字段是完整的 40 位 SHA 且等于本次构建的提交",
+      "verification": "node scripts/build.mjs && node scripts/e2e.mjs version",
+      "state": "passing",
+      "issue": null,
+      "verified": {
+        "at": "2026-11-04T13:35:22.404Z",
+        "digest": "fddf445c94da5b95503494be0dd2c3ed56d69aec089a608a9cd72a5581081419"
+      }
+    }
+  ]
+}
