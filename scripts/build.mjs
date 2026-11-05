@@ -41,7 +41,9 @@ export function build(outDir = path.join(ROOT, "dist"), env = process.env) {
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
   cpSync(path.join(ROOT, "index.html"), path.join(outDir, "index.html"));
-  if (existsSync(path.join(ROOT, "assets"))) cpSync(path.join(ROOT, "assets"), path.join(outDir, "assets"), { recursive: true });
+  for (const dir of ["assets", "bookmarks"]) {
+    if (existsSync(path.join(ROOT, dir))) cpSync(path.join(ROOT, dir), path.join(outDir, dir), { recursive: true });
+  }
   writeFileSync(path.join(outDir, ".nojekyll"), ""); // 不让 Pages 用 Jekyll 处理
   const version = versionJson(env);
   writeFileSync(path.join(outDir, "version.json"), `${JSON.stringify(version, null, 2)}\n`);
