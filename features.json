@@ -7,8 +7,12 @@
       "id": "F1",
       "behavior": "bookmarks/ 单页可填写非空标题与http/https链接，添加后列表可在新标签页打开、可删除，刷新后保留",
       "verification": "node --test",
-      "state": "not_started",
-      "issue": 4
+      "state": "passing",
+      "issue": 4,
+      "verified": {
+        "at": "2026-11-05T13:20:45.762Z",
+        "digest": "b005431aa01673619d339897365a3515d6aca80548cd20f87d5074fe8405cb17"
+      }
     },
     {
       "id": "F2",
