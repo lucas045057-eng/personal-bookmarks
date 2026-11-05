@@ -1,10 +1,13 @@
 // 书签单页的全部逻辑。浏览器里作为普通脚本加载并自动挂到页面上；测试里通过 module.exports 拿到同一套函数。
-// 数据只存在本机 localStorage。每次增删都先重新读取存储里的最新数据再写回，
-// 所以两个标签页交错操作不会互相覆盖，也不会把对方删掉的书签写回来。
+// 数据只存在本机 localStorage。旧数组只读；新增按独立键保存，删除写永久标识，
+// 不把过时列表写回，不依赖跨标签页的读改写锁。storage 事件用于刷新视图。
 (function (root) {
   "use strict";
 
   var KEY = "personal-bookmarks:v1";
+  var PREFIX = "personal-bookmarks:v2:";
+  var ITEM = PREFIX + "item:";
+  var DELETED = PREFIX + "del:";
   var ALLOWED = ["http:", "https:"];
 
   function validate(title, link) {
@@ -26,21 +29,34 @@
 
   function isSafeRecord(record) {
     if (!record || typeof record !== "object") return false;
-    if (typeof record.id !== "string" || typeof record.title !== "string" || typeof record.url !== "string") return false;
+    if (typeof record.id !== "string" || !record.id || typeof record.title !== "string" || typeof record.url !== "string") return false;
+    try { encodeURIComponent(record.id); } catch (error) { return false; }
     return validate(record.title, record.url).ok;
   }
 
   function defaultId() {
     var cryptoApi = root && root.crypto;
     if (cryptoApi && typeof cryptoApi.randomUUID === "function") return cryptoApi.randomUUID();
+    if (cryptoApi && typeof cryptoApi.getRandomValues === "function") {
+      return Array.from(cryptoApi.getRandomValues(new Uint32Array(4)), function (v) {
+        return v.toString(16).padStart(8, "0");
+      }).join("");
+    }
     return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
   }
 
   function createStore(storage, newId) {
     var makeId = newId || defaultId;
 
-    function readAll() {
+    function checkStorage() {
       if (!storage) throw new Error("浏览器不允许使用本地存储");
+      if (!Number.isInteger(storage.length) || typeof storage.key !== "function") {
+        throw new Error("浏览器不支持枚举本地存储，未保存任何改动");
+      }
+    }
+
+    function readLegacy() {
+      checkStorage();
       var raw = storage.getItem(KEY);
       if (raw === null || raw === undefined) return [];
       var data;
@@ -53,27 +69,56 @@
       return data;
     }
 
-    function writeAll(records) {
-      storage.setItem(KEY, JSON.stringify(records));
+    function itemKey(id) { return ITEM + encodeURIComponent(id); }
+    function deletedKey(id) { return DELETED + encodeURIComponent(id); }
+
+    function list() {
+      var legacy = readLegacy().filter(isSafeRecord);
+      var records = [];
+      for (var i = 0; i < storage.length; i++) {
+        var key = storage.key(i);
+        if (typeof key !== "string" || key.indexOf(ITEM) !== 0) continue;
+        // Storage access errors must remain visible; only malformed JSON is skipped.
+        var raw = storage.getItem(key);
+        var record;
+        try { record = JSON.parse(raw); } catch (error) { continue; }
+        if (!isSafeRecord(record) || key !== itemKey(record.id)) continue;
+        records.push(record);
+      }
+      records.sort(function (a, b) {
+        var at = typeof a.createdAt === "string" ? a.createdAt : "";
+        var bt = typeof b.createdAt === "string" ? b.createdAt : "";
+        return at < bt ? -1 : at > bt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+      var seen = new Set();
+      return legacy.concat(records).filter(function (record) {
+        if (seen.has(record.id)) return false;
+        seen.add(record.id);
+        return storage.getItem(deletedKey(record.id)) === null;
+      });
     }
 
     return {
-      list: function () {
-        return readAll().filter(isSafeRecord);
-      },
+      list: list,
       add: function (value) {
-        var records = readAll();
-        var record = { id: makeId(), title: value.title, url: value.url, createdAt: new Date().toISOString() };
-        records.push(record);
-        writeAll(records);
-        return record;
+        var legacy = readLegacy();
+        var checked = validate(value.title, value.url);
+        if (!checked.ok) throw new Error(checked.error);
+        for (var attempt = 0; attempt < 3; attempt++) {
+          var id = makeId();
+          if (typeof id !== "string" || !id) throw new Error("无法生成书签 ID");
+          if (legacy.some(function (r) { return r && r.id === id; }) ||
+              storage.getItem(itemKey(id)) !== null || storage.getItem(deletedKey(id)) !== null) continue;
+          var record = { id: id, title: checked.value.title, url: checked.value.url, createdAt: new Date().toISOString() };
+          storage.setItem(itemKey(id), JSON.stringify(record));
+          return record;
+        }
+        throw new Error("书签 ID 冲突，输入已保留，请重试");
       },
       remove: function (id) {
-        var records = readAll();
-        var rest = records.filter(function (record) {
-          return !record || record.id !== id;
-        });
-        if (rest.length !== records.length) writeAll(rest);
+        checkStorage();
+        if (typeof id !== "string" || !id) throw new Error("无效的书签 ID");
+        storage.setItem(deletedKey(id), "1");
       },
     };
   }
@@ -153,7 +198,8 @@
 
     if (win && typeof win.addEventListener === "function") {
       win.addEventListener("storage", function (event) {
-        if (event.key === KEY || event.key === null) render();
+        if (event.key === KEY || event.key === null ||
+            (typeof event.key === "string" && event.key.indexOf(PREFIX) === 0)) render();
       });
     }
 
@@ -161,7 +207,7 @@
     return { render: render };
   }
 
-  var api = { KEY: KEY, validate: validate, createStore: createStore, mount: mount };
+  var api = { KEY: KEY, PREFIX: PREFIX, validate: validate, createStore: createStore, mount: mount };
 
   if (typeof module === "object" && module && module.exports) {
     module.exports = api;

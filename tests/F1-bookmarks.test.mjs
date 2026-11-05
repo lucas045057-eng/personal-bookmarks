@@ -21,6 +21,12 @@ class MemoryStorage {
     this.data = new Map();
     this.failWrites = false;
   }
+  get length() {
+    return this.data.size;
+  }
+  key(index) {
+    return [...this.data.keys()][index] ?? null;
+  }
   getItem(key) {
     return this.data.has(key) ? this.data.get(key) : null;
   }
@@ -31,7 +37,7 @@ class MemoryStorage {
 }
 
 let counter = 0;
-const nextId = () => `id-${++counter}`;
+const nextId = () => `id-${String(++counter).padStart(6, "0")}`;
 
 // 极简假 DOM：只实现 app.js 用到的那些接口，页面里没有的 id 返回 null（和浏览器一致）
 function fakeDocument(html) {
@@ -195,7 +201,8 @@ test("F1 两个标签页交错添加/删除不覆盖、不复活彼此的数据"
   const b = openTab(storage); // b 打开时还是空的，之后不刷新
   a.add("A1", "https://a1.example/");
   b.add("B1", "https://b1.example/");
-  const titles = () => api.createStore(storage).list().map((r) => r.title);
+  // Convert the vm realm's array to a host array before strict comparison.
+  const titles = () => Array.from(api.createStore(storage).list(), (r) => r.title);
   assert.deepEqual(titles(), ["A1", "B1"], "b 的添加不能覆盖 a 的");
 
   // a 删掉 A1，b 页面上还显示着 A1（过期），再添加 B2：A1 不能复活
@@ -213,6 +220,93 @@ test("F1 两个标签页交错添加/删除不覆盖、不复活彼此的数据"
   // 另一标签页改了存储时，本页收到 storage 事件后刷新列表
   a.win.fire({ key: api.KEY });
   assert.deepEqual(a.items().map((li) => li.children[0].textContent), ["B2", "A2"]);
+});
+
+// Interleave operations inside a storage read, rather than completing each tab's
+// operation sequentially. The returned value remains the caller's stale snapshot.
+class HookStorage extends MemoryStorage {
+  getItem(key) {
+    const old = super.getItem(key);
+    if (key === api.KEY && this.afterRead) {
+      const hook = this.afterRead;
+      this.afterRead = null;
+      hook();
+    }
+    return old;
+  }
+}
+
+test("F1 并发反例：A读取后B完成新增，再A写入，两条都必须保留", () => {
+  const storage = new HookStorage();
+  const a = api.createStore(storage, () => "a");
+  const b = api.createStore(storage, () => "b");
+  storage.afterRead = () => b.add({ title: "B", url: "https://b.example/" });
+  a.add({ title: "A", url: "https://a.example/" });
+  assert.deepEqual(Array.from(a.list(), r => r.title).sort(), ["A", "B"]);
+});
+
+test("F1 并发反例：B读取后A删除，B新增写入不能复活被删记录", () => {
+  const storage = new HookStorage();
+  const a = api.createStore(storage, () => "a");
+  const b = api.createStore(storage, () => "b");
+  a.add({ title: "A", url: "https://a.example/" });
+  storage.afterRead = () => a.remove("a");
+  b.add({ title: "B", url: "https://b.example/" });
+  assert.deepEqual(Array.from(api.createStore(storage).list(), r => r.title), ["B"]);
+  assert.deepEqual(openTab(storage).items().map(li => li.children[0].textContent), ["B"]);
+});
+
+test("F1 旧数组只读：新增删除重开均不改旧字节，删除不会被旧数据复活", () => {
+  const storage = new MemoryStorage();
+  const old = JSON.stringify([{ id: "old", title: "Old", url: "https://old.example/" }]);
+  storage.setItem(api.KEY, old);
+  const store = api.createStore(storage, () => "new");
+  store.add({ title: "New", url: "https://new.example/" });
+  store.remove("old");
+  assert.equal(storage.getItem(api.KEY), old);
+  assert.deepEqual(Array.from(api.createStore(storage).list(), r => r.title), ["New"]);
+  assert.deepEqual(openTab(storage).items().map(li => li.children[0].textContent), ["New"]);
+});
+
+test("F1 ID冲突不能覆盖原记录或复用已删除记录的标识", () => {
+  const storage = new MemoryStorage();
+  const store = api.createStore(storage, () => "same");
+  store.add({ title: "First", url: "https://first.example/" });
+  assert.throws(() => store.add({ title: "Second", url: "https://second.example/" }), /ID/);
+  assert.deepEqual(Array.from(store.list(), r => r.title), ["First"]);
+  store.remove("same");
+  assert.throws(() => store.add({ title: "Again", url: "https://again.example/" }), /ID/);
+  assert.equal(store.list().length, 0);
+});
+
+test("F1 新格式危险或损坏记录不渲染，前缀事件刷新，删除失败不误报成功", () => {
+  const storage = new MemoryStorage();
+  const tab = openTab(storage);
+  api.createStore(storage, () => "safe").add({ title: "Safe", url: "https://safe.example/" });
+  assert.equal(typeof api.PREFIX, "string");
+  const prefix = api.PREFIX;
+  storage.setItem(prefix + "item:evil", JSON.stringify({ id: "evil", title: "Evil", url: "javascript:alert(1)" }));
+  storage.setItem(prefix + "item:wrong", JSON.stringify({ id: "different", title: "Wrong", url: "https://wrong.example/" }));
+  storage.setItem(prefix + "item:broken", "{bad");
+  tab.win.fire({ key: prefix + "item:safe" });
+  assert.deepEqual(tab.items().map(li => li.children[0].textContent), ["Safe"]);
+  storage.failWrites = true;
+  tab.items()[0].children[2].dispatch("click");
+  assert.match(tab.$("message").textContent, /删除失败/);
+  assert.equal(tab.items().length, 1);
+  storage.failWrites = false;
+  tab.items()[0].children[2].dispatch("click");
+  assert.equal(openTab(storage).items().length, 0);
+});
+
+test("F1 非法输入不写独立记录，存储不可枚举时明确失败保留输入", () => {
+  const storage = new MemoryStorage();
+  openTab(storage).add("Bad", "javascript:alert(1)");
+  assert.equal(storage.length, 0);
+  const tab = openTab({ getItem: () => null, setItem() {} });
+  tab.add("Keep", "https://keep.example/");
+  assert.equal(tab.$("title").value, "Keep");
+  assert.match(tab.$("message").textContent, /保存失败/);
 });
 
 test("F1 页面：只加载同目录脚本，CSP 不放行内联脚本，元素齐全", () => {
