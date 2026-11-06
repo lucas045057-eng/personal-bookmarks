@@ -18,8 +18,12 @@
       "id": "F2",
       "behavior": "添加书签时可填自由文本分类，留空为未分类",
       "verification": "node --test",
-      "state": "not_started",
-      "issue": 4
+      "state": "passing",
+      "issue": 4,
+      "verified": {
+        "at": "2026-11-06T15:54:20.103Z",
+        "digest": "f1463a955eb44269eb94248e75b04b81221bdd72acb5ff348f3819d83bea357b"
+      }
     }
   ]
 }

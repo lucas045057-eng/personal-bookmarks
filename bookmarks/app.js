@@ -27,6 +27,22 @@
     return { ok: true, value: { title: cleanTitle, url: parsed.href } };
   }
 
+  // 旧记录没有分类字段，按未分类读取。
+  function categoryOf(record) {
+    return record && typeof record.category === "string" ? record.category.trim() : "";
+  }
+
+  function matches(record, filter) {
+    var category = filter && typeof filter.category === "string" ? filter.category : "all";
+    var keyword = filter && typeof filter.keyword === "string" ? filter.keyword.trim().toLowerCase() : "";
+    var own = categoryOf(record).toLowerCase();
+    if (category === "none" && own) return false;
+    if (category.indexOf("c:") === 0 && own !== category.slice(2)) return false;
+    if (keyword && record.title.toLowerCase().indexOf(keyword) === -1 &&
+        record.url.toLowerCase().indexOf(keyword) === -1) return false;
+    return true;
+  }
+
   function isSafeRecord(record) {
     if (!record || typeof record !== "object") return false;
     if (typeof record.id !== "string" || !record.id || typeof record.title !== "string" || typeof record.url !== "string") return false;
@@ -109,7 +125,8 @@
           if (typeof id !== "string" || !id) throw new Error("无法生成书签 ID");
           if (legacy.some(function (r) { return r && r.id === id; }) ||
               storage.getItem(itemKey(id)) !== null || storage.getItem(deletedKey(id)) !== null) continue;
-          var record = { id: id, title: checked.value.title, url: checked.value.url, createdAt: new Date().toISOString() };
+          var record = { id: id, title: checked.value.title, url: checked.value.url,
+            category: String(value.category == null ? "" : value.category).trim(), createdAt: new Date().toISOString() };
           storage.setItem(itemKey(id), JSON.stringify(record));
           return record;
         }
@@ -127,24 +144,58 @@
     var form = doc.getElementById("add-form");
     var titleInput = doc.getElementById("title");
     var urlInput = doc.getElementById("url");
+    var categoryInput = doc.getElementById("category");
+    var filterForm = doc.getElementById("filter-form");
+    var filterCategory = doc.getElementById("filter-category");
+    var filterKeyword = doc.getElementById("filter-keyword");
     var message = doc.getElementById("message");
     var list = doc.getElementById("list");
     var empty = doc.getElementById("empty");
+    var noMatch = doc.getElementById("no-match");
     var store = createStore(storage, newId);
+    // 只有用户点"筛选"/"清除"才会改变生效的条件。
+    var applied = { category: "all", keyword: "" };
 
     function say(text, isError) {
       message.textContent = text;
       message.className = isError ? "error" : "ok";
     }
 
+    function addOption(value, label) {
+      var option = doc.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      filterCategory.appendChild(option);
+    }
+
+    function renderCategories(items) {
+      var current = filterCategory.value || applied.category;
+      var seen = new Set();
+      filterCategory.textContent = "";
+      addOption("all", "全部分类");
+      addOption("none", "未分类");
+      items.forEach(function (bookmark) {
+        var name = categoryOf(bookmark);
+        if (!name || seen.has(name.toLowerCase())) return;
+        seen.add(name.toLowerCase());
+        addOption("c:" + name.toLowerCase(), name);
+      });
+      if (current !== "all" && current !== "none" && !seen.has(current.slice(2))) {
+        addOption(current, current.slice(2));
+      }
+      filterCategory.value = current;
+    }
+
     function render() {
-      var items;
+      var all;
       try {
-        items = store.list();
+        all = store.list();
       } catch (error) {
         say(error.message, true);
         return;
       }
+      renderCategories(all);
+      var items = all.filter(function (bookmark) { return matches(bookmark, applied); });
       list.textContent = "";
       items.forEach(function (bookmark) {
         var item = doc.createElement("li");
@@ -169,13 +220,32 @@
           say("已删除", false);
           render();
         });
+        var tag = doc.createElement("span");
+        tag.className = "category";
+        tag.textContent = categoryOf(bookmark) || "未分类";
         item.appendChild(link);
         item.appendChild(address);
         item.appendChild(remove);
+        item.appendChild(tag);
         list.appendChild(item);
       });
-      empty.hidden = items.length > 0;
+      empty.hidden = all.length > 0;
+      noMatch.hidden = all.length === 0 || items.length > 0;
     }
+
+    filterForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      applied = { category: filterCategory.value || "all", keyword: filterKeyword.value };
+      render();
+    });
+
+    filterForm.addEventListener("reset", function (event) {
+      event.preventDefault();
+      filterCategory.value = "all";
+      filterKeyword.value = "";
+      applied = { category: "all", keyword: "" };
+      render();
+    });
 
     form.addEventListener("submit", function (event) {
       event.preventDefault();
@@ -185,13 +255,14 @@
         return;
       }
       try {
-        store.add(checked.value);
+        store.add({ title: checked.value.title, url: checked.value.url, category: categoryInput.value });
       } catch (error) {
         say("保存失败：" + error.message + "。输入已保留，可以稍后重试。", true);
         return;
       }
       titleInput.value = "";
       urlInput.value = "";
+      categoryInput.value = "";
       say("已添加", false);
       render();
     });
@@ -207,7 +278,7 @@
     return { render: render };
   }
 
-  var api = { KEY: KEY, PREFIX: PREFIX, validate: validate, createStore: createStore, mount: mount };
+  var api = { KEY: KEY, PREFIX: PREFIX, validate: validate, matches: matches, createStore: createStore, mount: mount };
 
   if (typeof module === "object" && module && module.exports) {
     module.exports = api;

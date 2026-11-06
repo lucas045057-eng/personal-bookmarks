@@ -9,15 +9,19 @@
     body { font: 16px/1.6 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; color: #1f2328; }
     form { display: grid; gap: 0.5rem; margin-bottom: 1rem; }
     label { display: grid; gap: 0.2rem; }
-    input { font: inherit; padding: 0.4rem; }
+    input, select { font: inherit; padding: 0.4rem; min-width: 0; max-width: 100%; box-sizing: border-box; }
     button { font: inherit; cursor: pointer; }
     #message { min-height: 1.6em; }
     .error { color: #b42318; }
     .ok { color: #1a7f37; }
+    .filters { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: end; padding-top: 0.5rem; border-top: 1px solid #e5e7eb; }
+    .filters label { flex: 1 1 10rem; min-width: 0; }
     ul { list-style: none; padding: 0; }
-    li { display: flex; gap: 0.75rem; align-items: baseline; padding: 0.4rem 0; border-bottom: 1px solid #e5e7eb; }
-    li a { font-weight: 600; word-break: break-word; }
-    .url { color: #59636e; font-size: 0.85em; flex: 1; word-break: break-all; }
+    li { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: baseline; padding: 0.4rem 0; border-bottom: 1px solid #e5e7eb; }
+    li a { font-weight: 600; word-break: break-word; min-width: 0; }
+    .url { color: #59636e; font-size: 0.85em; flex: 1; min-width: 0; word-break: break-all; }
+    .category { color: #59636e; font-size: 0.8em; border: 1px solid #d0d7de; border-radius: 1em; padding: 0 0.5em; word-break: break-word; }
+    li button { order: 1; }
   </style>
 </head>
 <body>
@@ -25,11 +29,19 @@
   <form id="add-form" novalidate>
     <label>标题 <input id="title" name="title" autocomplete="off" required></label>
     <label>链接 <input id="url" name="url" type="url" placeholder="https://example.com" autocomplete="off" required></label>
+    <label>分类（可留空） <input id="category" name="category" placeholder="留空为未分类" autocomplete="off"></label>
     <button type="submit">添加</button>
   </form>
   <p id="message" role="status" aria-live="polite"></p>
+  <form id="filter-form" class="filters" role="search" novalidate>
+    <label>分类 <select id="filter-category" name="filter-category"></select></label>
+    <label>关键词 <input id="filter-keyword" name="filter-keyword" type="search" placeholder="标题或链接" autocomplete="off"></label>
+    <button type="submit">筛选</button>
+    <button type="reset">清除</button>
+  </form>
   <ul id="list"></ul>
   <p id="empty">还没有书签。</p>
+  <p id="no-match" hidden>没有符合条件的书签。</p>
   <p><a href="../">返回首页</a></p>
   <script src="./app.js"></script>
 </body>
