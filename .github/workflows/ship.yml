@@ -34,7 +34,7 @@ jobs:
           node-version: 24
       # 钉在 agent-autoloop 发布后核实过的完整提交上，不跟分支走
       - id: scope
-        uses: KKKKhazix/agent-autoloop/plugins/delivery@cecec75be3ca26e6ca1d6833b50152ee9450088d
+        uses: KKKKhazix/agent-autoloop/plugins/delivery@fade2cee76bd91ed38e889b9a91276fd78e90625
       - name: 构建（dist/ + version.json）
         if: steps.scope.outputs.release == 'true' && steps.scope.outputs.superseded != 'true'
         run: make build
